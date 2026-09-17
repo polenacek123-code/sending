@@ -479,13 +479,12 @@ def receive_data():
     
     data_type = request.headers.get('Data-Type', 'symbol').lower().strip()
     
-    # Přečtení dat z Robloxu (ať už pošle JSON, Form nebo Raw text)
+    # Přečtení dat z Robloxu (JSON, Form nebo Raw text)
     incoming_val = ""
     if request.is_json:
         data = request.get_json(silent=True) or {}
         incoming_val = str(data.get('value', ''))
     else:
-        # Pokud Roblox pošle JSON jako obyčejný string, vytáhneme hodnotu ručně
         raw_text = request.get_data(as_text=True).strip()
         if '"value"' in raw_text:
             try:
@@ -498,7 +497,7 @@ def receive_data():
             incoming_val = raw_text
 
     if not incoming_val:
-        return "ERROR", 400
+        return jsonify({"value": "ERROR", "status": "error"}), 400
 
     # Zpracování dat podle Headeru
     if data_type == 'binary':
@@ -509,8 +508,8 @@ def receive_data():
         text_wall_content += incoming_val
         add_log(f"⌨️ <b>Klávesnice (Symbol):</b> '<span class='log-highlight'>{incoming_val}</span>'")
 
-    # DŮLEŽITÉ: Vracíme čistý text "OK", aby to Roblox Transmitter mohl přečíst a nespadl!
-    return "OK", 200
+    # Vracíme JSON i s klíčem "value", aby byl spokojený jak JSON parser, tak i ta funkce na otáčení textu!
+    return jsonify({"value": "OK", "status": "success"}), 200
 
 @app.route('/api/status', methods=['GET'])
 def api_status():
