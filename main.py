@@ -22,7 +22,7 @@ def add_log(message):
     timestamp = datetime.now().strftime("%H:%M:%S")
     logs.appendleft(f"[{timestamp}] {message}")
 
-add_log("Multidisplejový server spuštěn (Aktivní 1 displej).")
+add_log("Multidisplejový server spuštěn.")
 
 # --- PREVODNÍK NA 8-BIT ---
 def text_to_custom_binary(char):
@@ -49,22 +49,31 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Build Logic - Dynamic Multi-Display Control</title>
+    <title>Build Logic - Multi-Display Hub</title>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Inter', sans-serif; background-color: #0b0f19; color: #c9d1d9; padding: 25px 15px; }
         .container { max-width: 950px; margin: 0 auto; }
-        header { text-align: center; margin-bottom: 25px; }
+        header { text-align: center; margin-bottom: 20px; }
         header h1 { font-size: 26px; color: #58a6ff; font-weight: 700; letter-spacing: 1px; }
         header p { color: #8b949e; font-size: 14px; margin-top: 5px; }
         
+        /* Záložky (Tabs) */
+        .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #30363d; padding-bottom: 10px; justify-content: center; }
+        .tab-btn { background: #161b22; color: #8b949e; border: 1px solid #30363d; padding: 10px 20px; font-weight: 600; font-size: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s; width: auto; }
+        .tab-btn:hover { background: #21262d; color: #f0f6fc; }
+        .tab-btn.active { background: #1f6beb; color: #ffffff; border-color: #388bfd; }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
         .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
 
         .displays-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 15px; margin-bottom: 15px; }
-        .status-display { text-align: center; padding: 15px; background: #0d1117; border-radius: 8px; border: 1px solid #21262d; transition: all 0.3s; }
+        .status-display { text-align: center; padding: 15px; background: #0d1117; border-radius: 8px; border: 1px solid #21262d; }
         .disp-title { font-size: 14px; color: #58a6ff; font-weight: 600; margin-bottom: 5px; }
         .binary-out { font-family: 'Fira Code', monospace; font-size: 22px; color: #3fb950; letter-spacing: 2px; font-weight: 600; }
 
@@ -91,8 +100,39 @@ HTML_TEMPLATE = """
         .log-entry { margin-bottom: 4px; }
         .log-highlight { color: #58a6ff; }
         .log-target { color: #f2cc60; }
+
+        /* Style pro Set-up záložku */
+        .url-box { display: flex; gap: 10px; margin-bottom: 15px; }
+        .url-box input { margin-bottom: 0; font-family: 'Fira Code', monospace; color: #3fb950; font-weight: 600; }
+        .copy-btn { width: auto; padding: 0 20px; white-space: nowrap; background: #21262d; border: 1px solid #30363d; }
+        .copy-btn:hover { background: #30363d; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #21262d; font-size: 14px; }
+        th { color: #58a6ff; }
+        code { font-family: 'Fira Code', monospace; background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #f2cc60; border: 1px solid #30363d; }
     </style>
     <script>
+        // Funkce na přepínání záložek
+        function openTab(tabName) {
+            let tabs = document.getElementsByClassName('tab-content');
+            let btns = document.getElementsByClassName('tab-btn');
+            for (let t of tabs) t.classList.remove('active');
+            for (let b of btns) b.classList.remove('active');
+            
+            document.getElementById(tabName).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+
+        // Kopírování URL do schránky
+        function copyUrl() {
+            let urlInput = document.getElementById('server-url');
+            urlInput.select();
+            document.execCommand('copy');
+            alert('URL adresa byla zkopírována do schránky!');
+        }
+
+        // Živý update dat
         setInterval(async () => {
             try {
                 let res = await fetch('/api/status');
@@ -107,7 +147,9 @@ HTML_TEMPLATE = """
                 }
                 
                 let logBox = document.getElementById('log-box');
-                logBox.innerHTML = data.logs.map(l => `<div class="log-entry">${l}</div>`).join('');
+                if(logBox) {
+                    logBox.innerHTML = data.logs.map(l => `<div class="log-entry">${l}</div>`).join('');
+                }
             } catch(e) {}
         }, 400);
     </script>
@@ -115,89 +157,158 @@ HTML_TEMPLATE = """
 <body>
     <div class="container">
         <header>
-            <h1>🖥️ Dynamic Multi-Display Hub</h1>
-            <p>Správa až 6 nezávislých obrazovek v Robloxu přes Headers</p>
+            <h1>📡 Build Logic Control Hub</h1>
+            <p>Řízení Roblox logických obvodů a displejů v reálném čase</p>
         </header>
 
-        <!-- Přehled stavu displejů -->
-        <div class="card">
-            <div class="controls-header">
-                <h2>Aktivní obrazovky ({{ visible_count }}/{{ max_displays }})</h2>
-                <div class="btn-group">
-                    {% if visible_count < max_displays %}
-                    <form method="POST" action="/add_display" style="display:inline;">
-                        <button type="submit" class="btn-add" style="padding: 8px 14px;">➕ Přidat displej</button>
-                    </form>
-                    {% endif %}
-                    {% if visible_count > 1 %}
-                    <form method="POST" action="/remove_display" style="display:inline;">
-                        <button type="submit" class="btn-remove" style="padding: 8px 14px;">➖ Odebrat displej</button>
-                    </form>
-                    {% endif %}
-                </div>
-            </div>
-            
-            <div class="displays-grid">
-                {% for i in range(1, visible_count + 1) %}
-                {% set d_id = "Displej_0" ~ i %}
-                <div class="status-display">
-                    <div class="disp-title">{{ d_id }}</div>
-                    <div class="binary-out" id="bin-d{{ i }}">{{ current_val[d_id] }}</div>
-                    <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">
-                        Fronta: <span id="queue-d{{ i }}">{{ queue_len[d_id] }}</span> znaků
+        <!-- Přepínač záložek -->
+        <div class="nav-tabs">
+            <button class="tab-btn active" onclick="openTab('tab-kontrola')">🎮 Kontrolovat</button>
+            <button class="tab-btn" onclick="openTab('tab-setup')">⚙️ Set-up & Návod</button>
+        </div>
+
+        <!-- 1. ZÁLOŽKA: KONTROLOVAT -->
+        <div id="tab-kontrola" class="tab-content active">
+            <!-- Přehled stavu displejů -->
+            <div class="card">
+                <div class="controls-header">
+                    <h2>Aktivní obrazovky ({{ visible_count }}/{{ max_displays }})</h2>
+                    <div class="btn-group">
+                        {% if visible_count < max_displays %}
+                        <form method="POST" action="/add_display" style="display:inline;">
+                            <button type="submit" class="btn-add" style="padding: 8px 14px;">➕ Přidat displej</button>
+                        </form>
+                        {% endif %}
+                        {% if visible_count > 1 %}
+                        <form method="POST" action="/remove_display" style="display:inline;">
+                            <button type="submit" class="btn-remove" style="padding: 8px 14px;">➖ Odebrat displej</button>
+                        </form>
+                        {% endif %}
                     </div>
                 </div>
-                {% endfor %}
+                
+                <div class="displays-grid">
+                    {% for i in range(1, visible_count + 1) %}
+                    {% set d_id = "Displej_0" ~ i %}
+                    <div class="status-display">
+                        <div class="disp-title">{{ d_id }}</div>
+                        <div class="binary-out" id="bin-d{{ i }}">{{ current_val[d_id] }}</div>
+                        <div style="font-size: 12px; color: #8b949e; margin-top: 4px;">
+                            Fronta: <span id="queue-d{{ i }}">{{ queue_len[d_id] }}</span> znaků
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="grid">
+                <!-- Rychlé odeslání -->
+                <div class="card">
+                    <h2>⚡ Rychlé odeslání (1 Znak / 8-bit)</h2>
+                    <form method="POST" action="/send_single">
+                        <label style="font-size: 12px; color: #8b949e; display: block; margin-bottom: 4px;">Cílový displej:</label>
+                        <select name="target_display">
+                            {% for i in range(1, visible_count + 1) %}
+                            {% set d_id = "Displej_0" ~ i %}
+                            <option value="{{ d_id }}">{{ d_id }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="text" name="single_input" maxlength="8" placeholder="např. A nebo 10000001" required autocomplete="off">
+                        <button type="submit">Odeslat na displej</button>
+                    </form>
+                </div>
+
+                <!-- Postupné odeslání textu -->
+                <div class="card">
+                    <h2>📝 Postupné vysílání textu</h2>
+                    <form method="POST" action="/send_text">
+                        <label style="font-size: 12px; color: #8b949e; display: block; margin-bottom: 4px;">Cílový displej:</label>
+                        <select name="target_display">
+                            {% for i in range(1, visible_count + 1) %}
+                            {% set d_id = "Displej_0" ~ i %}
+                            <option value="{{ d_id }}">{{ d_id }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="text" name="text_input" placeholder="Napiš text..." required autocomplete="off">
+                        <button type="submit">Zařadit do fronty</button>
+                    </form>
+                    <form method="POST" action="/clear_queue">
+                        <button type="submit" class="btn-danger">Vymazat všechny fronty</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Logy -->
+            <div class="card">
+                <h2>📜 Živý výpis zpráv</h2>
+                <div id="log-box" class="log-container">
+                    {% for log in logs %}
+                        <div class="log-entry">{{ log }}</div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
 
-        <div class="grid">
-            <!-- Rychlé odeslání -->
+        <!-- 2. ZÁLOŽKA: SET-UP -->
+        <div id="tab-setup" class="tab-content">
+            <!-- URL pro HTTP Transmitter -->
             <div class="card">
-                <h2>⚡ Rychlé odeslání (1 Znak / 8-bit)</h2>
-                <form method="POST" action="/send_single">
-                    <label style="font-size: 12px; color: #8b949e; display: block; margin-bottom: 4px;">Cílový displej:</label>
-                    <select name="target_display">
-                        {% for i in range(1, visible_count + 1) %}
-                        {% set d_id = "Displej_0" ~ i %}
-                        <option value="{{ d_id }}">{{ d_id }}</option>
-                        {% endfor %}
-                    </select>
-                    <input type="text" name="single_input" maxlength="8" placeholder="např. A nebo 10000001" required autocomplete="off">
-                    <button type="submit">Odeslat na displej</button>
-                </form>
+                <h2>🔗 URL pro HTTP Transmitter</h2>
+                <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
+                    Tuto adresu vlož do pole <b>URL</b> u tvého HTTP Transmitteru v Robloxu:
+                </p>
+                <div class="url-box">
+                    <input type="text" id="server-url" value="" readonly>
+                    <button type="button" class="copy-btn" onclick="copyUrl()">📋 Kopírovat</button>
+                </div>
             </div>
 
-            <!-- Postupné odeslání textu -->
+            <!-- Headers pro nastavení displejů -->
             <div class="card">
-                <h2>📝 Postupné vysílání textu</h2>
-                <form method="POST" action="/send_text">
-                    <label style="font-size: 12px; color: #8b949e; display: block; margin-bottom: 4px;">Cílový displej:</label>
-                    <select name="target_display">
-                        {% for i in range(1, visible_count + 1) %}
-                        {% set d_id = "Displej_0" ~ i %}
-                        <option value="{{ d_id }}">{{ d_id }}</option>
+                <h2>📑 Nastavení Headerů pro různé displeje</h2>
+                <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
+                    V Robloxu otevři HTTP Transmitter a do pole <b>Headers</b> vlož příslušný řádek podle toho, který displej chceš ovládat:
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Název v panelu</th>
+                            <th>Co napsat do pole Headers v Robloxu</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for i in range(1, max_displays + 1) %}
+                        <tr>
+                            <td><b>Displej_0{{ i }}</b></td>
+                            <td><code>Displej-ID: Displej_0{{ i }}</code></td>
+                        </tr>
                         {% endfor %}
-                    </select>
-                    <input type="text" name="text_input" placeholder="Napiš text..." required autocomplete="off">
-                    <button type="submit">Zařadit do fronty</button>
-                </form>
-                <form method="POST" action="/clear_queue">
-                    <button type="submit" class="btn-danger">Vymazat všechny fronty</button>
-                </form>
+                    </tbody>
+                </table>
             </div>
-        </div>
 
-        <!-- Logy -->
-        <div class="card">
-            <h2>📜 Živý výpis zpráv</h2>
-            <div id="log-box" class="log-container">
-                {% for log in logs %}
-                    <div class="log-entry">{{ log }}</div>
-                {% endfor %}
+            <!-- Stručné vysvětlení funkcí -->
+            <div class="card">
+                <h2>💡 Vysvětlení fungování</h2>
+                <ul style="line-height: 1.8; font-size: 14px; padding-left: 20px; color: #c9d1d9;">
+                    <li><b>Formát 8 bitů:</b>
+                        <ul>
+                            <li><b>Bit 1 (vlevo):</b> <code>1</code> = Velké písmeno (Shift), <code>0</code> = Malé písmeno.</li>
+                            <li><b>Bit 2:</b> <code>1</code> = Mezera, <code>0</code> = Písmeno/číslo.</li>
+                            <li><b>Bity 3–8 (6 bitů vpravo):</b> Binární hodnota znaku (A=1, B=2 ... Z=26, 0=27 ... 9=36).</li>
+                        </ul>
+                    </li>
+                    <li style="margin-top: 10px;"><b>Postupné vysílání textu:</b> Zařadí větu do pořadníku a odesílá znak po znaku s pauzou (<code>00000000</code>) mezi nimi pro správné vykreslení.</li>
+                    <li><b>Rychlé odeslání:</b> Pošle ihned jeden konkrétní znak nebo vlastní raw 8bitový kód.</li>
+                </ul>
             </div>
         </div>
     </div>
+
+    <script>
+        // Dynamické doplňování aktuální URL do pole
+        document.getElementById('server-url').value = window.location.origin + '/get_signal';
+    </script>
 </body>
 </html>
 """
