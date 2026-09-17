@@ -1,32 +1,98 @@
 from flask import Flask, render_template_string, request, jsonify
+import collections
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Sem se ukládá aktuální zpráva v binární podobě (8 bitů)
+# Fronta pro postupné odesílání znaků (FIFO)
+char_queue = collections.deque()
+
+# Poslední stav poslaný do Robloxu
 current_binary_data = "00000000"
 
-# HTML vzhled jednoduché stránky
+# Historie logů (ukládáme posledních 20 událostí)
+logs = collections.deque(maxlen=20)
+
+def add_log(message):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    logs.appendleft(f"[{timestamp}] {message}")
+
+add_log("Server byl úspěšně spuštěn.")
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Build Logic Controller</title>
+    <title>Build Logic - Advanced Transmitter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: sans-serif; padding: 30px; background: #222; color: #fff; }
-        input[type=text] { padding: 10px; font-size: 16px; width: 250px; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
-        .status { margin-top: 20px; font-weight: bold; color: #00ff88; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #121212; color: #e0e0e0; max-width: 800px; margin: 0 auto; }
+        h1, h2 { color: #00ff88; text-align: center; }
+        .card { background: #1e1e1e; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        input[type=text] { padding: 12px; font-size: 16px; width: calc(100% - 26px); background: #2b2b2b; border: 1px solid #444; color: #fff; border-radius: 4px; margin-bottom: 10px; }
+        button { padding: 12px 20px; font-size: 16px; cursor: pointer; background: #00ff88; color: #000; font-weight: bold; border: none; border-radius: 4px; width: 100%; transition: 0.2s; }
+        button:hover { background: #00cc6a; }
+        .btn-clear { background: #ff4444; color: #fff; margin-top: 5px; }
+        .btn-clear:hover { background: #cc0000; }
+        .status { font-weight: bold; color: #00ff88; font-size: 18px; text-align: center; margin-top: 10px; }
+        .log-box { background: #000; color: #00ff00; font-family: monospace; padding: 15px; border-radius: 4px; height: 200px; overflow-y: auto; border: 1px solid #333; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
     </style>
+    <script>
+        // Automatický refresh logů bez načítání celé stránky každou sekundu
+        setInterval(async () => {
+            let res = await fetch('/api/status');
+            let data = await res.json();
+            document.getElementById('current-val').innerText = data.current_val;
+            document.getElementById('queue-len').innerText = data.queue_len;
+            
+            let logBox = document.getElementById('log-box');
+            logBox.innerHTML = data.logs.join('<br>');
+        }, 500);
+    </script>
 </head>
 <body>
-    <h1>Build Logic - Odesílač zpráv</h1>
-    <form method="POST" action="/send">
-        <label>Zadej 1 znak (nebo 8bit binární kód):</label><br><br>
-        <input type="text" name="text_input" maxlength="8" required placeholder="např. A nebo 01000001">
-        <button type="submit">Odeslat do hra</button>
-    </form>
-    <div class="status">
-        Aktualní binární hodnota pro Roblox: {{ current_val }}
+    <h1>📟 Build Logic HTTP Panel</h1>
+
+    <div class="card">
+        <div class="status">
+            Aktuální výstup: <span id="current-val">{{ current_val }}</span><br>
+            <small style="color: #aaa; font-size: 14px;">Znaků ve frontě: <span id="queue-len">{{ queue_len }}</span></small>
+        </div>
+    </div>
+
+    <div class="grid">
+        <!-- Režim 1: Jeden znak nebo binárka -->
+        <div class="card">
+            <h2>1. Rychlé vysílání (1 znak / 8-bit)</h2>
+            <form method="POST" action="/send_single">
+                <input type="text" name="single_input" maxlength="8" placeholder="např. A nebo 01000001" required>
+                <button type="submit">Odeslat ihned</button>
+            </form>
+        </div>
+
+        <!-- Režim 2: Sekvenční text -->
+        <div class="card">
+            <h2>2. Postupné vysílání textu</h2>
+            <form method="POST" action="/send_text">
+                <input type="text" name="text_input" placeholder="Ahoj Roblox!" required>
+                <button type="submit">Zařadit text do fronty</button>
+            </form>
+            <form method="POST" action="/clear_queue">
+                <button type="submit" class="btn-clear">Vymazat frontu</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Živé logy -->
+    <div class="card">
+        <h2>📜 Živé logy komunikace</h2>
+        <div id="log-box" class="log-box">
+            {% for log in logs %}
+                {{ log }}<br>
+            {% endfor %}
+        </div>
     </div>
 </body>
 </html>
@@ -34,27 +100,72 @@ HTML_TEMPLATE = """
 
 @app.route('/')
 def home():
-    return render_template_string(HTML_TEMPLATE, current_val=current_binary_data)
+    return render_template_string(
+        HTML_TEMPLATE, 
+        current_val=current_binary_data, 
+        queue_len=len(char_queue), 
+        logs=logs
+    )
 
-@app.route('/send', methods=['POST'])
-def send_data():
+# Režim 1: Okamžité nastavení jednoho znaku
+@app.route('/send_single', methods=['POST'])
+def send_single():
     global current_binary_data
-    user_input = request.form.get('text_input', '')
+    char_queue.clear() # Smaže frontu, pokud tam něco bylo
+    user_input = request.form.get('single_input', '').strip()
 
-    # Pokud uživatel zadal přesně 8 bitů (0 a 1), uložíme přímo
     if len(user_input) == 8 and all(c in '01' for c in user_input):
         current_binary_data = user_input
+        add_log(f"Ručně nastaven 8-bit: {user_input}")
     elif len(user_input) > 0:
-        # Převod prvního znaku na 8-bitový binární kód (ASCII)
         char_code = ord(user_input[0])
         current_binary_data = format(char_code, '08b')
+        add_log(f"Ručně nastaven znak: '{user_input[0]}' -> {current_binary_data}")
 
-    return render_template_string(HTML_TEMPLATE, current_val=current_binary_data)
+    return home()
 
-# Toto rozhraní volá HTTP Transmitter z Robloxu (GET požadavek)
+# Režim 2: Přidání celého textu do fronty
+@app.route('/send_text', methods=['POST'])
+def send_text():
+    text = request.form.get('text_input', '')
+    if text:
+        for char in text:
+            # Převede každý znak na 8-bit binárku
+            binary_char = format(ord(char), '08b')
+            char_queue.append((char, binary_char))
+        add_log(f"Přidán text do fronty: '{text}' ({len(text)} znaků)")
+    return home()
+
+@app.route('/clear_queue', methods=['POST'])
+def clear_queue():
+    char_queue.clear()
+    add_log("Fronta odesílání byla vymazána.")
+    return home()
+
+# API pro Roblox (HTTP Transmitter - GET požadavek)
 @app.route('/get_signal', methods=['GET'])
 def get_signal():
+    global current_binary_data
+    
+    # Pokud jsou ve frontě znaky, pošleme další v pořadí
+    if char_queue:
+        char, binary_val = char_queue.popleft()
+        current_binary_data = binary_val
+        add_log(f"Roblox si vyzvedl znak '{char}' ({binary_val}). Zbývá: {len(char_queue)}")
+    else:
+        # Pokud je fronta prázdná, držíme buď posledně nastavený znak nebo nulový stav
+        pass
+
     return jsonify({"value": current_binary_data})
+
+# API pro živou aktualizaci webu bez načítání
+@app.route('/api/status', methods=['GET'])
+def api_status():
+    return jsonify({
+        "current_val": current_binary_data,
+        "queue_len": len(char_queue),
+        "logs": list(logs)
+    })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
