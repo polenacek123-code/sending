@@ -27,11 +27,17 @@ def add_log(message):
 
 add_log("Multidisplejový server spuštěn.")
 
-# --- PREVODNÍK 8-BIT -> ZNAK ---
+# --- VYLEPŠENÝ PREVODNÍK 8-BIT -> ZNAK ---
 def custom_binary_to_text(binary_str):
     if len(binary_str) != 8 or not all(c in '01' for c in binary_str):
-        return "?"
+        return f"[{binary_str}]"
     
+    # 1. Zkouška standardní ASCII binárky (převod z desítkové soustavy)
+    ascii_val = int(binary_str, 2)
+    if 32 <= ascii_val <= 126:
+        return chr(ascii_val)
+
+    # 2. Zkouška custom 8bit logiky (Shift + Space + 6bit index)
     is_shift = binary_str[0] == "1"
     is_space = binary_str[1] == "1"
     
@@ -46,8 +52,8 @@ def custom_binary_to_text(binary_str):
     elif 27 <= char_index <= 36:
         return str(char_index - 27)
     
-    return "?"
-
+    # Pokud kód neodpovídá ničemu, zobrazí se přímo binárka
+    return f"[{binary_str}]"
 # --- PREVODNÍK ZNAK -> 8-BIT ---
 def text_to_custom_binary(char):
     if char == ' ':
