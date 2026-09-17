@@ -19,6 +19,28 @@ def add_log(message):
 
 add_log("Server byl úspěšně spuštěn.")
 
+# --- PREVODNÍK PRO TVŮJ DISPLEJ (6 bitů znak + 1 bit Shift + 1 bit 0) ---
+def text_to_custom_binary(char):
+    is_shift = 1 if char.isupper() else 0
+    clean_char = char.lower()
+    
+    if 'a' <= clean_char <= 'z':
+        # a=1, b=2, c=3 ... z=26
+        char_index = ord(clean_char) - ord('a') + 1  
+    elif '0' <= clean_char <= '9':
+        # 0=27, 1=28 ... 9=36
+        char_index = int(clean_char) + 27            
+    elif clean_char == ' ':
+        char_index = 0                               
+    else:
+        char_index = 0
+        
+    bit_unused = "0"
+    bit_shift = str(is_shift)
+    bits_data = format(char_index, '06b') # 6 bitů na kód
+    
+    return bit_unused + bit_shift + bits_data
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -40,7 +62,6 @@ HTML_TEMPLATE = """
         @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
     </style>
     <script>
-        // Automatický refresh logů bez načítání celé stránky každou sekundu
         setInterval(async () => {
             let res = await fetch('/api/status');
             let data = await res.json();
@@ -63,16 +84,14 @@ HTML_TEMPLATE = """
     </div>
 
     <div class="grid">
-        <!-- Režim 1: Jeden znak nebo binárka -->
         <div class="card">
             <h2>1. Rychlé vysílání (1 znak / 8-bit)</h2>
             <form method="POST" action="/send_single">
-                <input type="text" name="single_input" maxlength="8" placeholder="např. A nebo 01000001" required>
+                <input type="text" name="single_input" maxlength="8" placeholder="např. A nebo 00000001" required>
                 <button type="submit">Odeslat ihned</button>
             </form>
         </div>
 
-        <!-- Režim 2: Sekvenční text -->
         <div class="card">
             <h2>2. Postupné vysílání textu</h2>
             <form method="POST" action="/send_text">
@@ -85,7 +104,6 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- Živé logy -->
     <div class="card">
         <h2>📜 Živé logy komunikace</h2>
         <div id="log-box" class="log-box">
@@ -107,63 +125,58 @@ def home():
         logs=logs
     )
 
-# Režim 1: Okamžité nastavení jednoho znaku
 @app.route('/send_single', methods=['POST'])
 def send_single():
     global current_binary_data
-    char_queue.clear() # Smaže frontu, pokud tam něco bylo
+    char_queue.clear()
     user_input = request.form.get('single_input', '').strip()
 
     if len(user_input) == 8 and all(c in '01' for c in user_input):
         current_binary_data = user_input
         add_log(f"Ručně nastaven 8-bit: {user_input}")
     elif len(user_input) > 0:
-        char_code = ord(user_input[0])
-        current_binary_data = format(char_code, '08b')
+        current_binary_data = text_to_custom_binary(user_input[0])
         add_log(f"Ručně nastaven znak: '{user_input[0]}' -> {current_binary_data}")
 
     return home()
 
-# Režim 2: Přidání celého textu do fronty
 @app.route('/send_text', methods=['POST'])
 def send_text():
     text = request.form.get('text_input', '')
     if text:
         for char in text:
-            # Převede každý znak na 8-bit binárku
-            binary_char = format(ord(char), '08b')
+            binary_char = text_to_custom_binary(char)
+            # Vložíme znak A ZÁROVEŇ pauzu (nulový kód) pro spolehlivou synchronizaci
             char_queue.append((char, binary_char))
-        add_log(f"Přidán text do fronty: '{text}' ({len(text)} znaků)")
+            char_queue.append(('PAUZA', '00000000'))
+        add_log(f"Přidán text do fronty s pauzami: '{text}' ({len(text)} znaků)")
     return home()
 
 @app.route('/clear_queue', methods=['POST'])
 def clear_queue():
+    global current_binary_data
     char_queue.clear()
+    current_binary_data = "00000000"
     add_log("Fronta odesílání byla vymazána.")
     return home()
 
-# API pro Roblox (HTTP Transmitter - GET požadavek)
 @app.route('/get_signal', methods=['GET'])
 def get_signal():
     global current_binary_data
     
-    # Pokud jsou ve frontě znaky, pošleme další v pořadí
     if char_queue:
         char, binary_val = char_queue.popleft()
         current_binary_data = binary_val
-        add_log(f"Roblox si vyzvedl znak '{char}' ({binary_val}). Zbývá: {len(char_queue)}")
-    else:
-        # Pokud je fronta prázdná, držíme buď posledně nastavený znak nebo nulový stav
-        pass
-
+        if char != 'PAUZA':
+            add_log(f"Roblox načetl znak '{char}' ({binary_val}). Zbývá znaků: {len(char_queue)//2}")
+    
     return jsonify({"value": current_binary_data})
 
-# API pro živou aktualizaci webu bez načítání
 @app.route('/api/status', methods=['GET'])
 def api_status():
     return jsonify({
         "current_val": current_binary_data,
-        "queue_len": len(char_queue),
+        "queue_len": len(char_queue) // 2,
         "logs": list(logs)
     })
 
