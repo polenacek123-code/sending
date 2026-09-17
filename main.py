@@ -478,12 +478,12 @@ def get_signal():
 
     return jsonify({"value": "00000000"})
 
-# --- PŘESNĚ OŠETŘENÝ ENDPOINT PRO KLÁVESNICI ---
+# --- PŘESNÝ ENDPOINT PRO TEXT WALL ---
 @app.route('/api/receive_data', methods=['POST'])
 def receive_data():
     global text_wall_content
     
-    data_type = request.headers.get('Data-Type', 'symbol').lower().strip()
+    data_type = request.headers.get('Data-Type', 'binary').lower().strip()
     
     # 1. Získání surovaného textu z požadavku
     raw_text = request.get_data(as_text=True).strip()
@@ -493,14 +493,13 @@ def receive_data():
     if request.is_json:
         data = request.get_json(silent=True) or {}
         incoming_val = str(data.get('value', ''))
-    elif 'value=' in raw_text:
-        # Pokud posílá např. value=00001101 nebo {"value":"00001101"}
+    elif 'value' in raw_text:
         import re
-        match = re.search(r'01{8}', raw_text) # Zkusí najít 8 bitů
+        match = re.search(r'[01]{8}', raw_text)
         if match:
             incoming_val = match.group(0)
         else:
-            incoming_val = raw_text.split('value=')[-1].replace('}', '').replace('"', '').strip()
+            incoming_val = raw_text.split('value')[-1].replace('=', '').replace(':', '').replace('}', '').replace('"', '').strip()
     else:
         incoming_val = raw_text.replace('{"value":"', '').replace('"}', '').strip()
 
@@ -509,18 +508,24 @@ def receive_data():
 
     # 3. Zpracování podle Headeru
     if data_type == 'binary':
-        # Čištění: ponechá pouze jedničky a nuly
+        # Nepřevádí na znak! Zapíše přímo čitelnou binárku
         clean_binary = ''.join(c for c in incoming_val if c in '01')
+        text_wall_content += clean_binary + " "
+        add_log(f"⌨️ <b>Klávesnice (Surová Binárka):</b> <span class='log-highlight'>{clean_binary}</span>")
         
+    elif data_type == 'decode':
+        # Převede binárku na znak (např. 00001101 -> m)
+        clean_binary = ''.join(c for c in incoming_val if c in '01')
         decoded_char = custom_binary_to_text(clean_binary)
         text_wall_content += decoded_char
-        add_log(f"⌨️ <b>Klávesnice (Binary):</b> {clean_binary} -> '<span class='log-highlight'>{decoded_char}</span>'")
+        add_log(f"⌨️ <b>Klávesnice (Převod na Znak):</b> {clean_binary} -> '<span class='log-highlight'>{decoded_char}</span>'")
+        
     else:
+        # Symbol / Text
         text_wall_content += incoming_val
         add_log(f"⌨️ <b>Klávesnice (Symbol):</b> '<span class='log-highlight'>{incoming_val}</span>'")
 
     return jsonify({"value": "OK", "status": "success"}), 200
-
 @app.route('/api/status', methods=['GET'])
 def api_status():
     q_lengths = {d: len(display_queues[d]) // 2 for d in display_ids}
