@@ -472,23 +472,35 @@ def get_signal():
 
     return jsonify({"value": "00000000"})
 
-# --- NOVÝ ENDPOINT PRO PŘÍJEM Z KLÁVESNICE ---
+# --- OPRAVENÝ ENDPOINT PRO PŘÍJEM Z KLÁVESNICE ---
 @app.route('/api/receive_data', methods=['POST'])
 def receive_data():
     global text_wall_content
     
     data_type = request.headers.get('Data-Type', 'symbol').lower().strip()
     
-    # Získání poslala v těle (JSON, Form nebo raw text)
+    # Přečtení dat z Robloxu (ať už pošle JSON, Form nebo Raw text)
     incoming_val = ""
     if request.is_json:
-        incoming_val = str(request.json.get('value', ''))
+        data = request.get_json(silent=True) or {}
+        incoming_val = str(data.get('value', ''))
     else:
-        incoming_val = request.get_data(as_text=True).strip()
+        # Pokud Roblox pošle JSON jako obyčejný string, vytáhneme hodnotu ručně
+        raw_text = request.get_data(as_text=True).strip()
+        if '"value"' in raw_text:
+            try:
+                import json
+                parsed = json.loads(raw_text)
+                incoming_val = str(parsed.get('value', ''))
+            except:
+                incoming_val = raw_text
+        else:
+            incoming_val = raw_text
 
     if not incoming_val:
-        return jsonify({"status": "error", "message": "No data received"}), 400
+        return "ERROR", 400
 
+    # Zpracování dat podle Headeru
     if data_type == 'binary':
         decoded_char = custom_binary_to_text(incoming_val)
         text_wall_content += decoded_char
@@ -497,7 +509,8 @@ def receive_data():
         text_wall_content += incoming_val
         add_log(f"⌨️ <b>Klávesnice (Symbol):</b> '<span class='log-highlight'>{incoming_val}</span>'")
 
-    return jsonify({"status": "success", "text_wall": text_wall_content})
+    # DŮLEŽITÉ: Vracíme čistý text "OK", aby to Roblox Transmitter mohl přečíst a nespadl!
+    return "OK", 200
 
 @app.route('/api/status', methods=['GET'])
 def api_status():
