@@ -1,3 +1,78 @@
+from flask import Flask, render_template_string, request, jsonify
+import collections
+from datetime import datetime
+
+app = Flask(__name__)
+
+MAX_DISPLAYS = 6
+
+# Vytvořit fronty a hodnoty pro 6 displejů (Displej_01 až Displej_06)
+display_ids = [f"Displej_0{i}" for i in range(1, MAX_DISPLAYS + 1)]
+
+display_queues = {d: collections.deque() for d in display_ids}
+current_binary_data = {d: "00000000" for d in display_ids}
+
+# Počet viditelných displejů na webu (1 až 6)
+visible_count = 1
+
+# Ukládání obsahu pro Text Wall z klávesnice
+text_wall_content = ""
+
+# Logy zpráv
+logs = collections.deque(maxlen=30)
+
+def add_log(message):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    logs.appendleft(f"[{timestamp}] {message}")
+
+add_log("Multidisplejový server spuštěn.")
+
+# --- VYLEPŠENÝ PREVODNÍK 8-BIT -> ZNAK ---
+def custom_binary_to_text(binary_str):
+    if len(binary_str) != 8 or not all(c in '01' for c in binary_str):
+        return f"[{binary_str}]"
+    
+    # 1. Zkouška standardní ASCII binárky (převod z desítkové soustavy)
+    ascii_val = int(binary_str, 2)
+    if 32 <= ascii_val <= 126:
+        return chr(ascii_val)
+
+    # 2. Zkouška custom 8bit logiky (Shift + Space + 6bit index)
+    is_shift = binary_str[0] == "1"
+    is_space = binary_str[1] == "1"
+    
+    if is_space:
+        return " "
+        
+    char_index = int(binary_str[2:], 2)
+    
+    if 1 <= char_index <= 26:
+        char = chr(ord('a') + char_index - 1)
+        return char.upper() if is_shift else char
+    elif 27 <= char_index <= 36:
+        return str(char_index - 27)
+    
+    # Pokud kód neodpovídá ničemu, zobrazí se přímo binárka
+    return f"[{binary_str}]"
+# --- PREVODNÍK ZNAK -> 8-BIT ---
+def text_to_custom_binary(char):
+    if char == ' ':
+        return "01000000"
+    
+    is_shift = "1" if char.isupper() else "0"
+    is_space = "0"
+    clean_char = char.lower()
+    
+    if 'a' <= clean_char <= 'z':
+        char_index = ord(clean_char) - ord('a') + 1  
+    elif '0' <= clean_char <= '9':
+        char_index = int(clean_char) + 27            
+    else:
+        char_index = 0
+
+    bits_data = format(char_index, '06b')
+    return is_shift + is_space + bits_data
+
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="cs">
@@ -337,3 +412,153 @@ HTML_TEMPLATE = """
 </body>
 </html>
 """
+
+@app.route('/')
+def home():
+    q_lengths = {d: len(display_queues[d]) // 2 for d in display_ids}
+    return render_template_string(
+        HTML_TEMPLATE, 
+        current_val=current_binary_data, 
+        queue_len=q_lengths, 
+        visible_count=visible_count,
+        max_displays=MAX_DISPLAYS,
+        text_wall=text_wall_content,
+        logs=logs
+    )
+
+@app.route('/add_display', methods=['POST'])
+def add_display():
+    global visible_count
+    if visible_count < MAX_DISPLAYS:
+        visible_count += 1
+        add_log(f"Přidán displej: <span class='log-target'>Displej_0{visible_count}</span>")
+    return home()
+
+@app.route('/remove_display', methods=['POST'])
+def remove_display():
+    global visible_count
+    if visible_count > 1:
+        add_log(f"Schován displej: <span class='log-target'>Displej_0{visible_count}</span>")
+        visible_count -= 1
+    return home()
+
+@app.route('/clear_wall', methods=['POST'])
+def clear_wall():
+    global text_wall_content
+    text_wall_content = ""
+    add_log("Text Wall byla vymazána.")
+    return home()
+
+@app.route('/send_single', methods=['POST'])
+def send_single():
+    target = request.form.get('target_display', 'Displej_01')
+    user_input = request.form.get('single_input', '').strip()
+
+    if target in display_queues:
+        display_queues[target].clear()
+
+        if len(user_input) == 8 and all(c in '01' for c in user_input):
+            current_binary_data[target] = user_input
+            add_log(f"<b>[{target}]</b> Raw 8-bit: <span class='log-highlight'>{user_input}</span>")
+        elif len(user_input) > 0:
+            current_binary_data[target] = text_to_custom_binary(user_input[0])
+            add_log(f"<b>[{target}]</b> Znak: '<span class='log-highlight'>{user_input[0]}</span>' -> {current_binary_data[target]}")
+
+    return home()
+
+@app.route('/send_text', methods=['POST'])
+def send_text():
+    target = request.form.get('target_display', 'Displej_01')
+    text = request.form.get('text_input', '')
+
+    if target in display_queues and text:
+        for char in text:
+            binary_char = text_to_custom_binary(char)
+            display_queues[target].append((char, binary_char))
+            display_queues[target].append(('PAUZA', '00000000'))
+        add_log(f"<span class='log-target'>[{target}]</span> Text zařazen: '<span class='log-highlight'>{text}</span>'")
+    return home()
+
+@app.route('/clear_queue', methods=['POST'])
+def clear_queue():
+    for d in display_ids:
+        display_queues[d].clear()
+        current_binary_data[d] = "00000000"
+    add_log("Všechny fronty byly vymazány.")
+    return home()
+
+@app.route('/get_signal', methods=['GET'])
+def get_signal():
+    display_id = request.headers.get('Displej-ID', 'Displej_01').strip()
+    
+    if display_id in display_queues:
+        if display_queues[display_id]:
+            char, binary_val = display_queues[display_id].popleft()
+            current_binary_data[display_id] = binary_val
+            if char != 'PAUZA':
+                add_log(f"<span class='log-target'>[{display_id}]</span> Načten znak: '<span class='log-highlight'>{char}</span>'")
+        return jsonify({"value": current_binary_data[display_id]})
+
+    return jsonify({"value": "00000000"})
+
+# --- PŘESNÝ ENDPOINT PRO TEXT WALL ---
+@app.route('/api/receive_data', methods=['POST'])
+def receive_data():
+    global text_wall_content
+    
+    data_type = request.headers.get('Data-Type', 'binary').lower().strip()
+    
+    # 1. Získání surovaného textu z požadavku
+    raw_text = request.get_data(as_text=True).strip()
+    incoming_val = ""
+
+    # 2. Vyčištění dat z Robloxu (JSON, value=... nebo raw)
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        incoming_val = str(data.get('value', ''))
+    elif 'value' in raw_text:
+        import re
+        match = re.search(r'[01]{8}', raw_text)
+        if match:
+            incoming_val = match.group(0)
+        else:
+            incoming_val = raw_text.split('value')[-1].replace('=', '').replace(':', '').replace('}', '').replace('"', '').strip()
+    else:
+        incoming_val = raw_text.replace('{"value":"', '').replace('"}', '').strip()
+
+    if not incoming_val:
+        return jsonify({"value": "ERROR"}), 400
+
+    # 3. Zpracování podle Headeru
+    if data_type == 'binary':
+        # Nepřevádí na znak! Zapíše přímo čitelnou binárku
+        clean_binary = ''.join(c for c in incoming_val if c in '01')
+        text_wall_content += clean_binary + " "
+        add_log(f"⌨️ <b>Klávesnice (Surová Binárka):</b> <span class='log-highlight'>{clean_binary}</span>")
+        
+    elif data_type == 'decode':
+        # Převede binárku na znak (např. 00001101 -> m)
+        clean_binary = ''.join(c for c in incoming_val if c in '01')
+        decoded_char = custom_binary_to_text(clean_binary)
+        text_wall_content += decoded_char
+        add_log(f"⌨️ <b>Klávesnice (Převod na Znak):</b> {clean_binary} -> '<span class='log-highlight'>{decoded_char}</span>'")
+        
+    else:
+        # Symbol / Text
+        text_wall_content += incoming_val
+        add_log(f"⌨️ <b>Klávesnice (Symbol):</b> '<span class='log-highlight'>{incoming_val}</span>'")
+
+    return jsonify({"value": "OK", "status": "success"}), 200
+    
+@app.route('/api/status', methods=['GET'])
+def api_status():
+    q_lengths = {d: len(display_queues[d]) // 2 for d in display_ids}
+    return jsonify({
+        "current_val": current_binary_data,
+        "queue_len": q_lengths,
+        "text_wall": text_wall_content,
+        "logs": list(logs)
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
