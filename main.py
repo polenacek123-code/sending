@@ -90,15 +90,27 @@ HTML_TEMPLATE = """
         header p { color: #8b949e; font-size: 14px; margin-top: 5px; }
         
         /* Záložky (Tabs) */
-        .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid #30363d; padding-bottom: 10px; justify-content: center; }
-        .tab-btn { background: #161b22; color: #8b949e; border: 1px solid #30363d; padding: 10px 20px; font-weight: 600; font-size: 15px; border-radius: 8px; cursor: pointer; transition: 0.2s; width: auto; }
+        .nav-tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid #30363d; padding-bottom: 10px; justify-content: center; flex-wrap: wrap; }
+        .tab-btn { background: #161b22; color: #8b949e; border: 1px solid #30363d; padding: 10px 18px; font-weight: 600; font-size: 14px; border-radius: 8px; cursor: pointer; transition: 0.2s; }
         .tab-btn:hover { background: #21262d; color: #f0f6fc; }
         .tab-btn.active { background: #1f6beb; color: #ffffff; border-color: #388bfd; }
+
+        /* Zvýraznění pro Logy a Set-up */
+        .tab-btn.tab-logs { border-color: #d29922; color: #d29922; }
+        .tab-btn.tab-logs:hover { background: #272115; color: #f2cc60; }
+        .tab-btn.tab-logs.active { background: #d29922; color: #0d1117; border-color: #f2cc60; font-weight: 700; }
+
+        .tab-btn.tab-setup { border-color: #a371f7; color: #a371f7; }
+        .tab-btn.tab-setup:hover { background: #251e38; color: #d2a8ff; }
+        .tab-btn.tab-setup.active { background: #8957e5; color: #ffffff; border-color: #d2a8ff; font-weight: 700; }
 
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
         .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+        .card-logs { border-color: #d29922; }
+        .card-setup { border-color: #8957e5; }
+
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
 
@@ -126,13 +138,13 @@ HTML_TEMPLATE = """
         .btn-danger { background: #da3633; color: #fff; margin-top: 8px; }
         .btn-danger:hover { background: #f85149; }
 
-        .log-container { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 12px; height: 180px; overflow-y: auto; font-family: 'Fira Code', monospace; font-size: 13px; color: #8b949e; line-height: 1.6; }
-        .log-entry { margin-bottom: 4px; }
+        .log-container { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 12px; height: 380px; overflow-y: auto; font-family: 'Fira Code', monospace; font-size: 13px; color: #8b949e; line-height: 1.6; }
+        .log-entry { margin-bottom: 6px; border-bottom: 1px solid #161b22; padding-bottom: 4px; }
         .log-highlight { color: #58a6ff; }
         .log-target { color: #f2cc60; }
 
         /* Text Wall */
-        .text-wall { width: 100%; height: 160px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: 'Fira Code', monospace; color: #3fb950; font-size: 16px; resize: vertical; margin-bottom: 10px; word-break: break-all; }
+        .text-wall { width: 100%; height: 280px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: 'Fira Code', monospace; color: #3fb950; font-size: 16px; resize: vertical; margin-bottom: 15px; word-break: break-all; }
         .wall-actions { display: flex; gap: 10px; }
 
         /* Style pro Set-up záložku */
@@ -207,23 +219,13 @@ HTML_TEMPLATE = """
         <!-- Přepínač záložek -->
         <div class="nav-tabs">
             <button class="tab-btn active" onclick="openTab('tab-kontrola')">🎮 Kontrolovat</button>
-            <button class="tab-btn" onclick="openTab('tab-setup')">⚙️ Set-up & Návod</button>
+            <button class="tab-btn" onclick="openTab('tab-textwall')">🧱 Text Wall</button>
+            <button class="tab-btn tab-logs" onclick="openTab('tab-logs')">📜 Logy</button>
+            <button class="tab-btn tab-setup" onclick="openTab('tab-setup')">⚙️ Set-up & Návod</button>
         </div>
 
         <!-- 1. ZÁLOŽKA: KONTROLOVAT -->
         <div id="tab-kontrola" class="tab-content active">
-            <!-- Text Wall (Příjem z Roblox klávesnice) -->
-            <div class="card">
-                <h2>🧱 Text Wall (Příjem dat z Roblox klávesnice)</h2>
-                <textarea id="text-wall-area" class="text-wall" readonly placeholder="Zde se zobrazí data odeslaná z klávesnice v Robloxu...">{{ text_wall }}</textarea>
-                <div class="wall-actions">
-                    <button type="button" onclick="copyTextWall()" class="btn-add">📋 Kopírovat text</button>
-                    <form method="POST" action="/clear_wall" style="width: 100%;">
-                        <button type="submit" class="btn-remove">🗑️ Vymazat Text Wall</button>
-                    </form>
-                </div>
-            </div>
-
             <!-- Přehled stavu displejů -->
             <div class="card">
                 <div class="controls-header">
@@ -292,10 +294,26 @@ HTML_TEMPLATE = """
                     </form>
                 </div>
             </div>
+        </div>
 
-            <!-- Logy -->
+        <!-- 2. ZÁLOŽKA: TEXT WALL -->
+        <div id="tab-textwall" class="tab-content">
             <div class="card">
-                <h2>📜 Živý výpis zpráv</h2>
+                <h2>🧱 Text Wall (Příjem dat z Roblox klávesnice)</h2>
+                <textarea id="text-wall-area" class="text-wall" readonly placeholder="Zde se zobrazí data odeslaná z klávesnice v Robloxu...">{{ text_wall }}</textarea>
+                <div class="wall-actions">
+                    <button type="button" onclick="copyTextWall()" class="btn-add">📋 Kopírovat text</button>
+                    <form method="POST" action="/clear_wall" style="width: 100%;">
+                        <button type="submit" class="btn-remove">🗑️ Vymazat Text Wall</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. ZÁLOŽKA: LOGY (Zvýrazněná předposlední záložka) -->
+        <div id="tab-logs" class="tab-content">
+            <div class="card card-logs">
+                <h2 style="color: #f2cc60;">📜 Živý výpis systémových zpráv</h2>
                 <div id="log-box" class="log-container">
                     {% for log in logs %}
                         <div class="log-entry">{{ log }}</div>
@@ -304,11 +322,11 @@ HTML_TEMPLATE = """
             </div>
         </div>
 
-        <!-- 2. ZÁLOŽKA: SET-UP -->
+        <!-- 4. ZÁLOŽKA: SET-UP (Zvýrazněná poslední záložka) -->
         <div id="tab-setup" class="tab-content">
             <!-- URL pro HTTP Transmitter (Displeje) -->
-            <div class="card">
-                <h2>📺 URL pro Displeje (GET)</h2>
+            <div class="card card-setup">
+                <h2 style="color: #d2a8ff;">📺 URL pro Displeje (GET)</h2>
                 <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
                     Tuto adresu vlož do pole <b>URL</b> u HTTP Transmitteru připojeného k displeji:
                 </p>
@@ -319,8 +337,8 @@ HTML_TEMPLATE = """
             </div>
 
             <!-- URL pro Klávesnici (POST / Text Wall) -->
-            <div class="card">
-                <h2>⌨️ URL pro Klávesnici / Odesílání na Text Wall (POST)</h2>
+            <div class="card card-setup">
+                <h2 style="color: #d2a8ff;">⌨️ URL pro Klávesnici / Odesílání na Text Wall (POST)</h2>
                 <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
                     Tuto adresu vlož do pole <b>URL</b> u HTTP Transmitteru, který odesílá stisknuté klávesy z Robloxu:
                 </p>
@@ -331,10 +349,10 @@ HTML_TEMPLATE = """
             </div>
 
             <!-- Headers pro Klávesnici -->
-            <div class="card">
-                <h2>🏷️ Headers pro Klávesnici (Data-Type)</h2>
+            <div class="card card-setup">
+                <h2 style="color: #d2a8ff;">🏷️ Headers pro Klávesnici (Data-Type)</h2>
                 <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
-                    V nastavení HTTP Transmitteru u klávesnice přidej do pole <b>Headers</b> jeden z těchto režimů podle toho, co odesíláš:
+                    V nastavení HTTP Transmitteru u klávesnice přidej do pole <b>Headers</b> jeden z těchto režimů:
                 </p>
                 <table>
                     <thead>
@@ -346,22 +364,27 @@ HTML_TEMPLATE = """
                     </thead>
                     <tbody>
                         <tr>
-                            <td><b>Převod binárky na znak</b></td>
+                            <td><b>Surová Binárka</b></td>
                             <td><code>Data-Type: binary</code></td>
-                            <td>Klávesnice posílá 8bitový kód (např. <code>10000001</code>), web ho automaticky převede na znak (<code>A</code>) a přidá do Text Wall.</td>
+                            <td>Uloží na Text Wall přesně odeslaný 8bitový kód (např. <code>00001101</code>) bez jakéhokoliv převodu.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Převod binárky na znak</b></td>
+                            <td><code>Data-Type: decode</code></td>
+                            <td>Klávesnice posílá 8bitový kód (např. <code>00001101</code>), web ho automaticky převede na znak (<code>m</code>) a přidá na Text Wall.</td>
                         </tr>
                         <tr>
                             <td><b>Přímé symboly / text</b></td>
                             <td><code>Data-Type: symbol</code></td>
-                            <td>Klávesnice posílá přímo text nebo symbol (např. <code>H</code> nebo <code>#</code>), web ho zapíše přímo do Text Wall bez převodu.</td>
+                            <td>Klávesnice posílá přímo text nebo symbol, web ho zapíše přímo na Text Wall.</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
 
             <!-- Headers pro nastavení displejů -->
-            <div class="card">
-                <h2>📑 Headers pro Displeje (Displej-ID)</h2>
+            <div class="card card-setup">
+                <h2 style="color: #d2a8ff;">📑 Headers pro Displeje (Displej-ID)</h2>
                 <table>
                     <thead>
                         <tr>
