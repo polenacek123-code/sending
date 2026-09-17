@@ -478,43 +478,47 @@ def get_signal():
 
     return jsonify({"value": "00000000"})
 
-# --- OPRAVENÝ ENDPOINT PRO PŘÍJEM Z KLÁVESNICE ---
+# --- PŘESNĚ OŠETŘENÝ ENDPOINT PRO KLÁVESNICI ---
 @app.route('/api/receive_data', methods=['POST'])
 def receive_data():
     global text_wall_content
     
     data_type = request.headers.get('Data-Type', 'symbol').lower().strip()
     
-    # Přečtení dat z Robloxu (JSON, Form nebo Raw text)
+    # 1. Získání surovaného textu z požadavku
+    raw_text = request.get_data(as_text=True).strip()
     incoming_val = ""
+
+    # 2. Vyčištění dat z Robloxu (JSON, value=... nebo raw)
     if request.is_json:
         data = request.get_json(silent=True) or {}
         incoming_val = str(data.get('value', ''))
-    else:
-        raw_text = request.get_data(as_text=True).strip()
-        if '"value"' in raw_text:
-            try:
-                import json
-                parsed = json.loads(raw_text)
-                incoming_val = str(parsed.get('value', ''))
-            except:
-                incoming_val = raw_text
+    elif 'value=' in raw_text:
+        # Pokud posílá např. value=00001101 nebo {"value":"00001101"}
+        import re
+        match = re.search(r'01{8}', raw_text) # Zkusí najít 8 bitů
+        if match:
+            incoming_val = match.group(0)
         else:
-            incoming_val = raw_text
+            incoming_val = raw_text.split('value=')[-1].replace('}', '').replace('"', '').strip()
+    else:
+        incoming_val = raw_text.replace('{"value":"', '').replace('"}', '').strip()
 
     if not incoming_val:
-        return jsonify({"value": "ERROR", "status": "error"}), 400
+        return jsonify({"value": "ERROR"}), 400
 
-    # Zpracování dat podle Headeru
+    # 3. Zpracování podle Headeru
     if data_type == 'binary':
-        decoded_char = custom_binary_to_text(incoming_val)
+        # Čištění: ponechá pouze jedničky a nuly
+        clean_binary = ''.join(c for c in incoming_val if c in '01')
+        
+        decoded_char = custom_binary_to_text(clean_binary)
         text_wall_content += decoded_char
-        add_log(f"⌨️ <b>Klávesnice (Binary):</b> {incoming_val} -> '<span class='log-highlight'>{decoded_char}</span>'")
+        add_log(f"⌨️ <b>Klávesnice (Binary):</b> {clean_binary} -> '<span class='log-highlight'>{decoded_char}</span>'")
     else:
         text_wall_content += incoming_val
         add_log(f"⌨️ <b>Klávesnice (Symbol):</b> '<span class='log-highlight'>{incoming_val}</span>'")
 
-    # Vracíme JSON i s klíčem "value", aby byl spokojený jak JSON parser, tak i ta funkce na otáčení textu!
     return jsonify({"value": "OK", "status": "success"}), 200
 
 @app.route('/api/status', methods=['GET'])
