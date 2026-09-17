@@ -15,6 +15,9 @@ current_binary_data = {d: "00000000" for d in display_ids}
 # Počet viditelných displejů na webu (1 až 6)
 visible_count = 1
 
+# Ukládání obsahu pro Text Wall z klávesnice
+text_wall_content = ""
+
 # Logy zpráv
 logs = collections.deque(maxlen=30)
 
@@ -24,7 +27,28 @@ def add_log(message):
 
 add_log("Multidisplejový server spuštěn.")
 
-# --- PREVODNÍK NA 8-BIT ---
+# --- PREVODNÍK 8-BIT -> ZNAK ---
+def custom_binary_to_text(binary_str):
+    if len(binary_str) != 8 or not all(c in '01' for c in binary_str):
+        return "?"
+    
+    is_shift = binary_str[0] == "1"
+    is_space = binary_str[1] == "1"
+    
+    if is_space:
+        return " "
+        
+    char_index = int(binary_str[2:], 2)
+    
+    if 1 <= char_index <= 26:
+        char = chr(ord('a') + char_index - 1)
+        return char.upper() if is_shift else char
+    elif 27 <= char_index <= 36:
+        return str(char_index - 27)
+    
+    return "?"
+
+# --- PREVODNÍK ZNAK -> 8-BIT ---
 def text_to_custom_binary(char):
     if char == ' ':
         return "01000000"
@@ -83,9 +107,9 @@ HTML_TEMPLATE = """
 
         h2 { font-size: 16px; color: #f0f6fc; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 0.5px; }
         
-        select, input[type=text] { width: 100%; padding: 12px 15px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #f0f6fc; font-family: 'Fira Code', monospace; font-size: 15px; margin-bottom: 12px; }
+        select, input[type=text], textarea { width: 100%; padding: 12px 15px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #f0f6fc; font-family: 'Fira Code', monospace; font-size: 15px; margin-bottom: 12px; }
         select { font-family: 'Inter', sans-serif; cursor: pointer; }
-        select:focus, input[type=text]:focus { border-color: #58a6ff; outline: none; }
+        select:focus, input[type=text]:focus, textarea:focus { border-color: #58a6ff; outline: none; }
 
         button { width: 100%; padding: 12px; border-radius: 6px; border: none; font-weight: 600; font-size: 14px; cursor: pointer; transition: 0.2s; background: #238636; color: #ffffff; }
         button:hover { background: #2ea043; }
@@ -101,6 +125,10 @@ HTML_TEMPLATE = """
         .log-highlight { color: #58a6ff; }
         .log-target { color: #f2cc60; }
 
+        /* Text Wall */
+        .text-wall { width: 100%; height: 160px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: 'Fira Code', monospace; color: #3fb950; font-size: 16px; resize: vertical; margin-bottom: 10px; word-break: break-all; }
+        .wall-actions { display: flex; gap: 10px; }
+
         /* Style pro Set-up záložku */
         .url-box { display: flex; gap: 10px; margin-bottom: 15px; }
         .url-box input { margin-bottom: 0; font-family: 'Fira Code', monospace; color: #3fb950; font-weight: 600; }
@@ -113,7 +141,6 @@ HTML_TEMPLATE = """
         code { font-family: 'Fira Code', monospace; background: #0d1117; padding: 2px 6px; border-radius: 4px; color: #f2cc60; border: 1px solid #30363d; }
     </style>
     <script>
-        // Funkce na přepínání záložek
         function openTab(tabName) {
             let tabs = document.getElementsByClassName('tab-content');
             let btns = document.getElementsByClassName('tab-btn');
@@ -124,15 +151,20 @@ HTML_TEMPLATE = """
             event.currentTarget.classList.add('active');
         }
 
-        // Kopírování URL do schránky
-        function copyUrl() {
-            let urlInput = document.getElementById('server-url');
+        function copyUrl(elementId) {
+            let urlInput = document.getElementById(elementId);
             urlInput.select();
             document.execCommand('copy');
-            alert('URL adresa byla zkopírována do schránky!');
+            alert('Adresa byla zkopírována do schránky!');
         }
 
-        // Živý update dat
+        function copyTextWall() {
+            let wall = document.getElementById('text-wall-area');
+            wall.select();
+            document.execCommand('copy');
+            alert('Obsah Text Wall byl zkopírován!');
+        }
+
         setInterval(async () => {
             try {
                 let res = await fetch('/api/status');
@@ -146,6 +178,11 @@ HTML_TEMPLATE = """
                     if (qEl) qEl.innerText = data.queue_len[key] || 0;
                 }
                 
+                let wall = document.getElementById('text-wall-area');
+                if (wall && document.activeElement !== wall) {
+                    wall.value = data.text_wall;
+                }
+
                 let logBox = document.getElementById('log-box');
                 if(logBox) {
                     logBox.innerHTML = data.logs.map(l => `<div class="log-entry">${l}</div>`).join('');
@@ -169,6 +206,18 @@ HTML_TEMPLATE = """
 
         <!-- 1. ZÁLOŽKA: KONTROLOVAT -->
         <div id="tab-kontrola" class="tab-content active">
+            <!-- Text Wall (Příjem z Roblox klávesnice) -->
+            <div class="card">
+                <h2>🧱 Text Wall (Příjem dat z Roblox klávesnice)</h2>
+                <textarea id="text-wall-area" class="text-wall" readonly placeholder="Zde se zobrazí data odeslaná z klávesnice v Robloxu...">{{ text_wall }}</textarea>
+                <div class="wall-actions">
+                    <button type="button" onclick="copyTextWall()" class="btn-add">📋 Kopírovat text</button>
+                    <form method="POST" action="/clear_wall" style="width: 100%;">
+                        <button type="submit" class="btn-remove">🗑️ Vymazat Text Wall</button>
+                    </form>
+                </div>
+            </div>
+
             <!-- Přehled stavu displejů -->
             <div class="card">
                 <div class="controls-header">
@@ -251,24 +300,62 @@ HTML_TEMPLATE = """
 
         <!-- 2. ZÁLOŽKA: SET-UP -->
         <div id="tab-setup" class="tab-content">
-            <!-- URL pro HTTP Transmitter -->
+            <!-- URL pro HTTP Transmitter (Displeje) -->
             <div class="card">
-                <h2>🔗 URL pro HTTP Transmitter</h2>
+                <h2>📺 URL pro Displeje (GET)</h2>
                 <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
-                    Tuto adresu vlož do pole <b>URL</b> u tvého HTTP Transmitteru v Robloxu:
+                    Tuto adresu vlož do pole <b>URL</b> u HTTP Transmitteru připojeného k displeji:
                 </p>
                 <div class="url-box">
-                    <input type="text" id="server-url" value="" readonly>
-                    <button type="button" class="copy-btn" onclick="copyUrl()">📋 Kopírovat</button>
+                    <input type="text" id="server-url-display" value="" readonly>
+                    <button type="button" class="copy-btn" onclick="copyUrl('server-url-display')">📋 Kopírovat</button>
                 </div>
+            </div>
+
+            <!-- URL pro Klávesnici (POST / Text Wall) -->
+            <div class="card">
+                <h2>⌨️ URL pro Klávesnici / Odesílání na Text Wall (POST)</h2>
+                <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
+                    Tuto adresu vlož do pole <b>URL</b> u HTTP Transmitteru, který odesílá stisknuté klávesy z Robloxu:
+                </p>
+                <div class="url-box">
+                    <input type="text" id="server-url-wall" value="" readonly>
+                    <button type="button" class="copy-btn" onclick="copyUrl('server-url-wall')">📋 Kopírovat</button>
+                </div>
+            </div>
+
+            <!-- Headers pro Klávesnici -->
+            <div class="card">
+                <h2>🏷️ Headers pro Klávesnici (Data-Type)</h2>
+                <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
+                    V nastavení HTTP Transmitteru u klávesnice přidej do pole <b>Headers</b> jeden z těchto režimů podle toho, co odesíláš:
+                </p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Požadovaný režim</th>
+                            <th>Co napsat do pole Headers v Robloxu</th>
+                            <th>Popis</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><b>Převod binárky na znak</b></td>
+                            <td><code>Data-Type: binary</code></td>
+                            <td>Klávesnice posílá 8bitový kód (např. <code>10000001</code>), web ho automaticky převede na znak (<code>A</code>) a přidá do Text Wall.</td>
+                        </tr>
+                        <tr>
+                            <td><b>Přímé symboly / text</b></td>
+                            <td><code>Data-Type: symbol</code></td>
+                            <td>Klávesnice posílá přímo text nebo symbol (např. <code>H</code> nebo <code>#</code>), web ho zapíše přímo do Text Wall bez převodu.</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
 
             <!-- Headers pro nastavení displejů -->
             <div class="card">
-                <h2>📑 Nastavení Headerů pro různé displeje</h2>
-                <p style="font-size: 14px; color: #8b949e; margin-bottom: 12px;">
-                    V Robloxu otevři HTTP Transmitter a do pole <b>Headers</b> vlož příslušný řádek podle toho, který displej chceš ovládat:
-                </p>
+                <h2>📑 Headers pro Displeje (Displej-ID)</h2>
                 <table>
                     <thead>
                         <tr>
@@ -286,28 +373,12 @@ HTML_TEMPLATE = """
                     </tbody>
                 </table>
             </div>
-
-            <!-- Stručné vysvětlení funkcí -->
-            <div class="card">
-                <h2>💡 Vysvětlení fungování</h2>
-                <ul style="line-height: 1.8; font-size: 14px; padding-left: 20px; color: #c9d1d9;">
-                    <li><b>Formát 8 bitů:</b>
-                        <ul>
-                            <li><b>Bit 1 (vlevo):</b> <code>1</code> = Velké písmeno (Shift), <code>0</code> = Malé písmeno.</li>
-                            <li><b>Bit 2:</b> <code>1</code> = Mezera, <code>0</code> = Písmeno/číslo.</li>
-                            <li><b>Bity 3–8 (6 bitů vpravo):</b> Binární hodnota znaku (A=1, B=2 ... Z=26, 0=27 ... 9=36).</li>
-                        </ul>
-                    </li>
-                    <li style="margin-top: 10px;"><b>Postupné vysílání textu:</b> Zařadí větu do pořadníku a odesílá znak po znaku s pauzou (<code>00000000</code>) mezi nimi pro správné vykreslení.</li>
-                    <li><b>Rychlé odeslání:</b> Pošle ihned jeden konkrétní znak nebo vlastní raw 8bitový kód.</li>
-                </ul>
-            </div>
         </div>
     </div>
 
     <script>
-        // Dynamické doplňování aktuální URL do pole
-        document.getElementById('server-url').value = window.location.origin + '/get_signal';
+        document.getElementById('server-url-display').value = window.location.origin + '/get_signal';
+        document.getElementById('server-url-wall').value = window.location.origin + '/api/receive_data';
     </script>
 </body>
 </html>
@@ -322,6 +393,7 @@ def home():
         queue_len=q_lengths, 
         visible_count=visible_count,
         max_displays=MAX_DISPLAYS,
+        text_wall=text_wall_content,
         logs=logs
     )
 
@@ -339,6 +411,13 @@ def remove_display():
     if visible_count > 1:
         add_log(f"Schován displej: <span class='log-target'>Displej_0{visible_count}</span>")
         visible_count -= 1
+    return home()
+
+@app.route('/clear_wall', methods=['POST'])
+def clear_wall():
+    global text_wall_content
+    text_wall_content = ""
+    add_log("Text Wall byla vymazána.")
     return home()
 
 @app.route('/send_single', methods=['POST'])
@@ -393,12 +472,40 @@ def get_signal():
 
     return jsonify({"value": "00000000"})
 
+# --- NOVÝ ENDPOINT PRO PŘÍJEM Z KLÁVESNICE ---
+@app.route('/api/receive_data', methods=['POST'])
+def receive_data():
+    global text_wall_content
+    
+    data_type = request.headers.get('Data-Type', 'symbol').lower().strip()
+    
+    # Získání poslala v těle (JSON, Form nebo raw text)
+    incoming_val = ""
+    if request.is_json:
+        incoming_val = str(request.json.get('value', ''))
+    else:
+        incoming_val = request.get_data(as_text=True).strip()
+
+    if not incoming_val:
+        return jsonify({"status": "error", "message": "No data received"}), 400
+
+    if data_type == 'binary':
+        decoded_char = custom_binary_to_text(incoming_val)
+        text_wall_content += decoded_char
+        add_log(f"⌨️ <b>Klávesnice (Binary):</b> {incoming_val} -> '<span class='log-highlight'>{decoded_char}</span>'")
+    else:
+        text_wall_content += incoming_val
+        add_log(f"⌨️ <b>Klávesnice (Symbol):</b> '<span class='log-highlight'>{incoming_val}</span>'")
+
+    return jsonify({"status": "success", "text_wall": text_wall_content})
+
 @app.route('/api/status', methods=['GET'])
 def api_status():
     q_lengths = {d: len(display_queues[d]) // 2 for d in display_ids}
     return jsonify({
         "current_val": current_binary_data,
         "queue_len": q_lengths,
+        "text_wall": text_wall_content,
         "logs": list(logs)
     })
 
